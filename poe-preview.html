@@ -1,0 +1,513 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://code.jquery.com https://unpkg.com https://d3js.org https://threejs.org https://cdn.plot.ly https://stackpath.bootstrapcdn.com https://maps.googleapis.com https://cdn.tailwindcss.com https://ajax.googleapis.com https://kit.fontawesome.com https://cdn.datatables.net https://maxcdn.bootstrapcdn.com https://code.highcharts.com https://tako-static-assets-production.s3.amazonaws.com https://www.youtube.com https://fonts.googleapis.com https://fonts.gstatic.com https://pfst.cf2.poecdn.net https://i.imgur.com https://wikimedia.org https://*.icons8.com https://*.giphy.com https://picsum.photos https://images.unsplash.com; frame-src 'self' https://www.youtube.com https://trytako.com; child-src 'self'; manifest-src 'self'; worker-src 'self'; upgrade-insecure-requests; block-all-mixed-content;">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>猪猪不撞南墙</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: #f0f2f5;
+            font-family: 'Microsoft YaHei', sans-serif;
+        }
+
+        .game-container {
+            position: relative;
+            width: 800px;
+            height: 400px;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        #gameCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        .screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.95);
+            z-index: 10;
+        }
+
+        .title {
+            color: #ff6b6b;
+            font-size: 48px;
+            margin-bottom: 20px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .button {
+            background: #ff6b6b;
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            font-size: 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .button:hover {
+            background: #ff5252;
+            transform: translateY(-2px);
+        }
+
+        .instructions {
+            margin-top: 20px;
+            color: #666;
+            font-size: 16px;
+            text-align: center;
+        }
+
+        .life-container {
+            position: absolute;
+            top: 10px;
+            right: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            width: 90px;
+            gap: 5px;
+            z-index: 5;
+        }
+        
+        .life-heart {
+            width: 25px;
+            height: 25px;
+            color: #ff4444;
+            font-size: 20px;
+            text-align: center;
+        }
+
+        @media (max-width: 820px) {
+            .game-container {
+                width: 95%;
+                height: 300px;
+            }
+            .title {
+                font-size: 32px;
+            }
+            .life-container {
+                width: 75px;
+            }
+            .life-heart {
+                width: 20px;
+                height: 20px;
+                font-size: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <canvas id="gameCanvas"></canvas>
+        <div class="life-container" id="lifeContainer"></div>
+        <div id="startScreen" class="screen">
+            <h1 class="title">猪猪不撞南墙</h1>
+            <button id="startButton" class="button">开始游戏</button>
+            <div class="instructions">
+                按空格键或点击屏幕跳跃<br>
+                连续按两次可以二段跳<br>
+                收集❤️回复生命值
+            </div>
+        </div>
+        <div id="gameOverScreen" class="screen" style="display: none;">
+            <h1 class="title">游戏结束</h1>
+            <div id="finalScore" style="font-size: 24px; margin: 10px;"></div>
+            <button id="restartButton" class="button">再来一次</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const startScreen = document.getElementById('startScreen');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        const startButton = document.getElementById('startButton');
+        const restartButton = document.getElementById('restartButton');
+
+        const GAME_CONFIG = {
+            GRAVITY: 0.8,
+            JUMP_FORCE: -15,
+            GAME_SPEED: 5,
+            OBSTACLE_SPAWN_RATE: 0.02,
+            GROUND_HEIGHT: 50,
+            HEART_SPAWN_RATE: 0.005,
+            MAX_LIVES: 9,
+            INVINCIBLE_TIME: 2000
+        };
+
+        function createPigImage() {
+            const tempCanvas = document.createElement('canvas');
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCanvas.width = 60;
+            tempCanvas.height = 60;
+            
+            // 耳朵
+            tempCtx.fillStyle = '#ffb6c1';
+            tempCtx.beginPath();
+            tempCtx.ellipse(15, 15, 8, 12, -Math.PI/4, 0, Math.PI * 2);
+            tempCtx.fill();
+            tempCtx.beginPath();
+            tempCtx.ellipse(45, 15, 8, 12, Math.PI/4, 0, Math.PI * 2);
+            tempCtx.fill();
+            
+            // 身体
+            tempCtx.fillStyle = '#ffd1dc';
+            tempCtx.beginPath();
+            tempCtx.arc(30, 30, 25, 0, Math.PI * 2);
+            tempCtx.fill();
+
+            // 腮红
+            tempCtx.fillStyle = '#ffb6c1';
+            tempCtx.beginPath();
+            tempCtx.arc(15, 35, 8, 0, Math.PI * 2);
+            tempCtx.arc(45, 35, 8, 0, Math.PI * 2);
+            tempCtx.fill();
+            
+            // 眼睛
+            tempCtx.fillStyle = 'white';
+            tempCtx.beginPath();
+            tempCtx.arc(20, 25, 6, 0, Math.PI * 2);
+            tempCtx.arc(40, 25, 6, 0, Math.PI * 2);
+            tempCtx.fill();
+            
+            tempCtx.fillStyle = 'black';
+            tempCtx.beginPath();
+            tempCtx.arc(21, 25, 3, 0, Math.PI * 2);
+            tempCtx.arc(41, 25, 3, 0, Math.PI * 2);
+            tempCtx.fill();
+            
+            tempCtx.fillStyle = 'white';
+            tempCtx.beginPath();
+            tempCtx.arc(22, 23, 1.5, 0, Math.PI * 2);
+            tempCtx.arc(42, 23, 1.5, 0, Math.PI * 2);
+            tempCtx.fill();
+            
+            // 鼻子
+            tempCtx.fillStyle = '#ff9999';
+            tempCtx.beginPath();
+            tempCtx.ellipse(30, 32, 7, 5, 0, 0, Math.PI * 2);
+            tempCtx.fill();
+            
+            tempCtx.fillStyle = '#ffb6c1';
+            tempCtx.beginPath();
+            tempCtx.ellipse(28, 31, 2, 1.5, Math.PI/4, 0, Math.PI * 2);
+            tempCtx.fill();
+
+            // 微笑
+            tempCtx.strokeStyle = '#ff7777';
+            tempCtx.lineWidth = 2;
+            tempCtx.beginPath();
+            tempCtx.arc(30, 32, 12, 0.1 * Math.PI, 0.9 * Math.PI);
+            tempCtx.stroke();
+
+            return tempCanvas;
+        }
+
+        const pigImage = createPigImage();
+
+        let player, obstacles, hearts, score, lives, isGameRunning, gameSpeed, ground;
+        let isInvincible, lastHitTime;
+
+        function resizeCanvas() {
+            const container = document.querySelector('.game-container');
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+        }
+
+        function updateLifeDisplay() {
+            const lifeContainer = document.getElementById('lifeContainer');
+            lifeContainer.innerHTML = '';
+            for (let i = 0; i < lives; i++) {
+                if (i > 0 && i % 3 === 0) {
+                    lifeContainer.appendChild(document.createElement('br'));
+                }
+                const heart = document.createElement('div');
+                heart.className = 'life-heart';
+                heart.innerHTML = '❤️';
+                lifeContainer.appendChild(heart);
+            }
+        }
+
+        function initGameState() {
+            player = {
+                x: 100,
+                y: 0,
+                width: 60,
+                height: 60,
+                velocityY: 0,
+                jumpCount: 0,
+                isVisible: true
+            };
+            obstacles = [];
+            hearts = [];
+            score = 0;
+            lives = GAME_CONFIG.MAX_LIVES;
+            isGameRunning = false;
+            gameSpeed = GAME_CONFIG.GAME_SPEED;
+            ground = [];
+            isInvincible = false;
+            lastHitTime = 0;
+            updateLifeDisplay();
+        }
+
+        function initGround() {
+            const segmentWidth = 50;
+            const numSegments = Math.ceil(canvas.width / segmentWidth) + 1;
+            ground = [];
+            for (let i = 0; i < numSegments; i++) {
+                ground.push({
+                    x: i * segmentWidth,
+                    width: segmentWidth,
+                    height: GAME_CONFIG.GROUND_HEIGHT
+                });
+            }
+        }
+
+        function updateGround() {
+            for (let segment of ground) {
+                segment.x -= gameSpeed;
+                if (segment.x + segment.width < 0) {
+                    segment.x = canvas.width;
+                }
+            }
+        }
+
+        function drawGround() {
+            ctx.fillStyle = '#4a4a4a';
+            for (let segment of ground) {
+                ctx.fillRect(segment.x, canvas.height - segment.height, 
+                           segment.width, segment.height);
+            }
+        }
+
+        function spawnObstacle() {
+            if (Math.random() < GAME_CONFIG.OBSTACLE_SPAWN_RATE) {
+                obstacles.push({
+                    x: canvas.width,
+                    y: canvas.height - GAME_CONFIG.GROUND_HEIGHT,
+                    width: 30,
+                    height: 60 + Math.random() * 40
+                });
+            }
+        }
+
+        function spawnHeart() {
+            if (Math.random() < GAME_CONFIG.HEART_SPAWN_RATE) {
+                hearts.push({
+                    x: canvas.width,
+                    y: canvas.height - GAME_CONFIG.GROUND_HEIGHT - 100 - Math.random() * 100,
+                    width: 30,
+                    height: 30
+                });
+            }
+        }
+
+        function updateObstacles() {
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                obstacles[i].x -= gameSpeed;
+                if (obstacles[i].x + obstacles[i].width < 0) {
+                    obstacles.splice(i, 1);
+                    score += 10;
+                }
+            }
+        }
+
+        function updateHearts() {
+            for (let i = hearts.length - 1; i >= 0; i--) {
+                hearts[i].x -= gameSpeed;
+                if (hearts[i].x + hearts[i].width < 0) {
+                    hearts.splice(i, 1);
+                }
+            }
+        }
+
+        function drawObstacles() {
+            ctx.fillStyle = '#ff4444';
+            for (let obstacle of obstacles) {
+                ctx.fillRect(obstacle.x, obstacle.y - obstacle.height, 
+                           obstacle.width, obstacle.height);
+            }
+        }
+
+        function drawHearts() {
+            ctx.font = '30px Arial';
+            for (let heart of hearts) {
+                ctx.fillText('❤️', heart.x, heart.y);
+            }
+        }
+
+        function drawPig(x, y, width, height) {
+            if (!player.isVisible) return;
+            ctx.globalAlpha = isInvincible ? 0.5 : 1;
+            ctx.drawImage(pigImage, x, y, width, height);
+            ctx.globalAlpha = 1;
+        }
+
+        function checkCollision() {
+            if (isInvincible) return false;
+
+            for (let obstacle of obstacles) {
+                if (player.x < obstacle.x + obstacle.width &&
+                    player.x + player.width > obstacle.x &&
+                    player.y < obstacle.y &&
+                    player.y + player.height > obstacle.y - obstacle.height) {
+                    handleCollision();
+                    return lives <= 0;
+                }
+            }
+            return false;
+        }
+
+        function checkHeartCollision() {
+            for (let i = hearts.length - 1; i >= 0; i--) {
+                const heart = hearts[i];
+                if (player.x < heart.x + heart.width &&
+                    player.x + player.width > heart.x &&
+                    player.y < heart.y + heart.height &&
+                    player.y + player.height > heart.y) {
+                    hearts.splice(i, 1);
+                    if (lives < GAME_CONFIG.MAX_LIVES) {
+                        lives++;
+                        updateLifeDisplay();
+                    }
+                    score += 50;
+                }
+            }
+        }
+
+        function handleCollision() {
+            lives--;
+            updateLifeDisplay();
+            
+            if (lives > 0) {
+                isInvincible = true;
+                lastHitTime = Date.now();
+                
+                let blinkCount = 0;
+                const blinkInterval = setInterval(() => {
+                    player.isVisible = !player.isVisible;
+                    blinkCount++;
+                    if (blinkCount >= 6) {
+                        clearInterval(blinkInterval);
+                        player.isVisible = true;
+                    }
+                }, 300);
+                
+                setTimeout(() => {
+                    isInvincible = false;
+                }, GAME_CONFIG.INVINCIBLE_TIME);
+            }
+        }
+
+        function handleJump() {
+            if (player.jumpCount < 2) {
+                player.velocityY = GAME_CONFIG.JUMP_FORCE;
+                player.jumpCount++;
+            }
+        }
+
+        function gameLoop() {
+            if (!isGameRunning) return;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            player.velocityY += GAME_CONFIG.GRAVITY;
+            player.y += player.velocityY;
+
+            if (player.y > canvas.height - GAME_CONFIG.GROUND_HEIGHT - player.height) {
+                player.y = canvas.height - GAME_CONFIG.GROUND_HEIGHT - player.height;
+                player.velocityY = 0;
+                player.jumpCount = 0;
+            }
+
+            updateGround();
+            spawnObstacle();
+            updateObstacles();
+            spawnHeart();
+            updateHearts();
+            checkHeartCollision();
+
+            drawGround();
+            drawObstacles();
+            drawHearts();
+            drawPig(player.x, player.y, player.width, player.height);
+
+            ctx.fillStyle = '#000';
+            ctx.font = '20px Microsoft YaHei';
+            ctx.fillText(`分数: ${score}`, 20, 30);
+
+            if (checkCollision()) {
+                gameOver();
+                return;
+            }
+
+            gameSpeed += 0.001;
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function startGame() {
+            startScreen.style.display = 'none';
+            gameOverScreen.style.display = 'none';
+            
+            initGameState();
+            player.y = canvas.height - GAME_CONFIG.GROUND_HEIGHT - player.height;
+            isGameRunning = true;
+            
+            requestAnimationFrame(gameLoop);
+        }
+
+        function gameOver() {
+            isGameRunning = false;
+            document.getElementById('finalScore').textContent = `最终得分: ${score}`;
+            gameOverScreen.style.display = 'flex';
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                if (isGameRunning) {
+                    handleJump();
+                }
+            }
+        });
+
+        canvas.addEventListener('click', () => {
+            if (isGameRunning) {
+                handleJump();
+            }
+        });
+        
+        startButton.addEventListener('click', startGame);
+        restartButton.addEventListener('click', startGame);
+
+        window.addEventListener('load', () => {
+            resizeCanvas();
+            initGameState();
+            initGround();
+        });
+
+        window.addEventListener('resize', () => {
+            resizeCanvas();
+            initGround();
+        });
+    </script>
+
+
+</body></html>
